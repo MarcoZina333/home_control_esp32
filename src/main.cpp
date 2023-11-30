@@ -23,23 +23,24 @@
 #define PHOTORES 32
 #define OUT_MAX 255 //in uscita ho 8 bit, quindi valori da 0 a 255
 #define MIN_VALUE_READ 1900 //valore minimo letto dal ADC sul photoresistor
-#define SAMPLE_TIME 250
-
+#define SAMPLE_TIME 100
 
 BLECharacteristic *characteristicTX; 
 bool deviceConnected = false; 
 bool refreshServer = false;           //false:spento, true:acceso
 
-enum LedMode {Duccio, Chill, Off, Manual}; //
+enum LedMode {Duccio, Chill}; //
 std::map<LedMode, uint8_t> lightMap = { //in caso per risparmiare memoria posso usare direttamente un array
   {Duccio, 255},
   {Chill, 125},
-  {Off, 0}
 };
+
 //LedMode led_state = Off;
 double lightIn;
 double lightOut = 0;
-double lightDesired = 0; 
+double lightDesired = 0;
+
+bool autoMode = false;
 
 //cose da portare in scope con "using" per comodità
 using std::string;
@@ -48,11 +49,13 @@ using std::string;
 using pfunc = void (*)();
 
 
-//TO DO: controllo luminosità led (con fotoresistore o manuale), lettura temperatura
+//TO DO: lettura temperatura
 
 void powerOffLed() {
-  lightDesired = lightMap[Off];
-  //led_state = Off;
+  autoMode = false;
+  analogWrite(LED, 0);
+  lightOut = 0;
+  lightDesired = 0;
 };
 
 void disconnection() {
@@ -60,17 +63,17 @@ void disconnection() {
 }
 
 void apriTutto() {
+  autoMode = true;
   lightDesired = lightMap[Duccio];
-  //led_state = Duccio;
 }
 
 void ledChill() {
+  autoMode = true;
   lightDesired = lightMap[Chill];
-  //led_state = Chill;
 }
 
 //Dizionario delle funzioni e comandi da chiamare tramite comunicazione ble
-std::map<string, pfunc> commandDictionary= {
+std::map<string, pfunc> commandDictionary = {
   {"L_DUCCIO", apriTutto},
   {"L_OFF", powerOffLed},
   {"L_CHILL", ledChill},
@@ -78,7 +81,7 @@ std::map<string, pfunc> commandDictionary= {
 };
 
 //Dizionario dei valori settabili
-std::map<string, double*> settableValues= {
+std::map<string, double*> settableValues = {
   {LED_COMM, &lightDesired}
 };
 
@@ -91,19 +94,18 @@ class CharacteristicCallbacks: public BLECharacteristicCallbacks {
     
     //si suppongono stringhe di almeno 2 caratteri come comandi
     if (rxValue.length() > 1) {
-      //std::size_t pos = rxValue.find("?");
       int pos = -1;
       for (int i = 0; i < rxValue.length(); i++) {
-        Serial.print(rxValue[i]);
+        //Serial.print(rxValue[i]);
         if (rxValue[i] == '?') pos = i;
       }
-      Serial.println();
-      //rxValue = rxValue + "\0";
+      //Serial.println();
       //se contiene '?' è una funzione con parametro: quello che c'è prima indica quale e quello che c'è dopo come settarlo
       if (pos != -1){
         int manValue = std::stoi(rxValue.substr(pos+1));
         string comm = rxValue.substr(0, pos);
         *(settableValues[comm]) = manValue + 0.0;
+        autoMode = true;
         //led_state = Manual;
       }
       else {
@@ -160,7 +162,6 @@ void serverInitialization() {
 
 }
 
-
 PIControl controller(&lightIn, &lightOut, &lightDesired, 0, 10, SAMPLE_TIME);
 
 void setup() {
@@ -170,7 +171,7 @@ void setup() {
   // Di default il led è spento
   pinMode(LED, OUTPUT);
   powerOffLed();
-  Serial.begin(9600);
+  //Serial.begin(9600);
 }
 
 void loop() {
@@ -180,14 +181,17 @@ void loop() {
     serverInitialization();
     refreshServer = false;
   }
+  if (autoMode) {
+    //double lightPre = analogRead(PHOTORES);
+    lightIn = (analogRead(PHOTORES) - MIN_VALUE_READ)/7.0; //riscalo su 8 bit
+    //Serial.printf("READ:\nValue raw: %.2f\nValue processed: %.2f\n", lightPre, lightIn);
+    if (lightIn < 0)
+      lightIn = 0;
+    else if (lightIn > OUT_MAX)
+      lightIn = OUT_MAX;
+    
+    controller.compute();
+    analogWrite(LED, round(lightOut));
+  }
   delay(SAMPLE_TIME);
-  lightIn = (analogRead(PHOTORES) - 1900)/7.0;
-  if (lightIn < 0)
-    lightIn = 0;
-  else if (lightIn > OUT_MAX)
-    lightIn = OUT_MAX;
-  
-  controller.compute();
-  
-  analogWrite(LED, round(lightOut));
 }

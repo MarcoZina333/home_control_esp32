@@ -7,8 +7,6 @@
    //classe che funge da controllore prop. e integrale per sistemi SISO retroazionati
    //implementati su framework arduino
 
-
-   
 PIControl::PIControl(double* _input, double* _output, double* _desired,
       double _kp, double _ki, int sampleTime)
 {
@@ -16,7 +14,7 @@ PIControl::PIControl(double* _input, double* _output, double* _desired,
    input = _input;
    desired = _desired;		//default output limit corresponds to
    
-   errSum = *desired -*input;
+   errSum = *desired - *input;
 
    kp = _kp;
    ki = _ki;
@@ -40,10 +38,11 @@ void PIControl::compute()
    //Serial.printf("Dimming value pre: %.2f \n", tempOut);
    if (tempOut < MIN_PWM){
       tempOut = MIN_PWM;
-      errSum = 0;
+      errSum -= (error * timeChange);
    }
    else if (tempOut > MAX_PWM) {
       tempOut = MAX_PWM;
+      errSum -= (error * timeChange);
    }
    /*Remember some variables for next time*/
    *output = tempOut;
